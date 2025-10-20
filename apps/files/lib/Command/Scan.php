@@ -251,16 +251,20 @@ class Scan extends Base {
 			$path = $inputPath ?: '/' . $user;
 			++$user_count;
 			if ($this->userManager->userExists($user)) {
-				$output->writeln("Starting scan for user $user_count out of $users_total ($user)");
-				$this->scanFiles(
-					$user,
-					$path,
-					$metadata,
-					$output,
-					$mountFilter,
-					$input->getOption('unscanned'),
-					!$input->getOption('shallow'),
-				);
+				if ($this->userManager->get($user)?->isEnabled() ?? false) {
+					$output->writeln("Starting scan for user $user_count out of $users_total ($user)");
+					$this->scanFiles(
+						$user,
+						$path,
+						$metadata,
+						$output,
+						$mountFilter,
+						$input->getOption('unscanned'),
+						!$input->getOption('shallow'),
+					);
+				} else {
+					$output->writeln("<info>User is disabled $user_count $user</info>");
+				}
 				$output->writeln('', OutputInterface::VERBOSITY_VERBOSE);
 			} else {
 				$output->writeln("<error>Unknown user $user_count $user</error>");

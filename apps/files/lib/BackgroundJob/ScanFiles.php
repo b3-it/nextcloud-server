@@ -15,6 +15,7 @@ use OCP\DB\QueryBuilder\IQueryBuilder;
 use OCP\EventDispatcher\IEventDispatcher;
 use OCP\IConfig;
 use OCP\IDBConnection;
+use OCP\IUserManager;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -129,7 +130,16 @@ class ScanFiles extends TimedJob {
 		$usersScanned = 0;
 		$lastUser = '';
 		$user = $this->getUserToScan();
-		while ($user && $usersScanned < self::USERS_PER_SESSION && $lastUser !== $user) {
+		/** @var \OCP\IUserManager $um */
+		$um   = \OC::$server->get(IUserManager::class);
+		while ($user && $um->userExists($user) && $usersScanned < self::USERS_PER_SESSION && $lastUser !== $user) {
+			$userObj = $um->get($user);
+			if (!($userObj?->isEnabled() ?? false)) {
+				$this->logger->info("User $user is disabled, omitting background scan");
+				$usersScanned++;
+				continue;
+			}
+
 			$this->runScanner($user);
 			$lastUser = $user;
 			$user = $this->getUserToScan();
