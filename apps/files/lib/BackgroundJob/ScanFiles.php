@@ -70,8 +70,24 @@ class ScanFiles extends TimedJob {
 			$query->select('m.user_id')
 				->from('filecache', 'f')
 				->leftJoin('f', 'mounts', 'm', $query->expr()->eq('m.storage_id', 'f.storage'))
+				//get information if user is enabled
+				->leftJoin('f', 'preferences', 'p', $query->expr()->andX(
+					$query->expr()->eq('p.userid', 'm.user_id'),
+						$query->expr()->eq('p.appid', $query->createNamedParameter('core')),
+						$query->expr()->eq('p.configkey', $query->createNamedParameter('enabled'))
+					)
+				)
 				->where($query->expr()->eq('f.size', $query->createNamedParameter(-1, IQueryBuilder::PARAM_INT)))
 				->andWhere($query->expr()->gt('f.parent', $query->createNamedParameter(-1, IQueryBuilder::PARAM_INT)))
+				//filter only by users if enabled is not set or is true
+				->andWhere($query->expr()->orX(
+					$query->expr()->isNull('p.configkey'),
+						$query->expr()->andX(
+						$query->expr()->eq('p.configkey', $query->createNamedParameter('enabled')),
+							$query->expr()->eq('p.configvalue', $query->createNamedParameter('true'))
+						)
+					)
+				)
 				->setMaxResults(10)
 				->groupBy('f.storage')
 				->runAcrossAllShards();
@@ -91,24 +107,56 @@ class ScanFiles extends TimedJob {
 			$query->select('m.user_id')
 				->from('filecache', 'f')
 				->leftJoin('f', 'mounts', 'm', $query->expr()->eq('m.storage_id', 'f.storage'))
+				//get information if user is enabled
+				->leftJoin('f', 'preferences', 'p', $query->expr()->andX(
+					$query->expr()->eq('p.userid', 'm.user_id'),
+						$query->expr()->eq('p.appid', $query->createNamedParameter('core')),
+						$query->expr()->eq('p.configkey', $query->createNamedParameter('enabled'))
+					)
+				)
 				->where($query->expr()->eq('f.size', $query->createNamedParameter(-1, IQueryBuilder::PARAM_INT)))
 				->andWhere($query->expr()->gt('f.parent', $query->createNamedParameter(-1, IQueryBuilder::PARAM_INT)))
 				->andWhere($query->expr()->in('f.storage', $query->createNamedParameter($storages, IQueryBuilder::PARAM_INT_ARRAY)))
+				//filter only by users if enabled is not set or is true
+				->andWhere($query->expr()->orX(
+					$query->expr()->isNull('p.configkey'),
+						$query->expr()->andX(
+							$query->expr()->eq('p.configkey', $query->createNamedParameter('enabled')),
+							$query->expr()->eq('p.configvalue', $query->createNamedParameter('true'))
+						)
+					)
+				)
 				->setMaxResults(1)
 				->runAcrossAllShards();
-			return $query->executeQuery()->fetchOne();
-		} else {
-			$query = $this->connection->getQueryBuilder();
-			$query->select('m.user_id')
-				->from('filecache', 'f')
-				->innerJoin('f', 'mounts', 'm', $query->expr()->eq('m.storage_id', 'f.storage'))
-				->where($query->expr()->eq('f.size', $query->createNamedParameter(-1, IQueryBuilder::PARAM_INT)))
-				->andWhere($query->expr()->gt('f.parent', $query->createNamedParameter(-1, IQueryBuilder::PARAM_INT)))
-				->setMaxResults(1)
-				->runAcrossAllShards();
-
 			return $query->executeQuery()->fetchOne();
 		}
+
+		$query = $this->connection->getQueryBuilder();
+		$query->select('m.user_id')
+			->from('filecache', 'f')
+			->innerJoin('f', 'mounts', 'm', $query->expr()->eq('m.storage_id', 'f.storage'))
+			//get information if user is enabled
+			->leftJoin('f', 'preferences', 'p', $query->expr()->andX(
+				$query->expr()->eq('p.userid', 'm.user_id'),
+					$query->expr()->eq('p.appid', $query->createNamedParameter('core')),
+					$query->expr()->eq('p.configkey', $query->createNamedParameter('enabled'))
+				)
+			)
+			->where($query->expr()->eq('f.size', $query->createNamedParameter(-1, IQueryBuilder::PARAM_INT)))
+			->andWhere($query->expr()->gt('f.parent', $query->createNamedParameter(-1, IQueryBuilder::PARAM_INT)))
+			//filter only by users if enabled is not set or is true
+			->andWhere($query->expr()->orX(
+				$query->expr()->isNull('p.configkey'),
+					$query->expr()->andX(
+						$query->expr()->eq('p.configkey', $query->createNamedParameter('enabled')),
+						$query->expr()->eq('p.configvalue', $query->createNamedParameter('true'))
+					)
+				)
+			)
+			->setMaxResults(1)
+			->runAcrossAllShards();
+
+		return $query->executeQuery()->fetchOne();
 	}
 
 	private function getAllMountedStorages(): array {
@@ -133,17 +181,10 @@ class ScanFiles extends TimedJob {
 		/** @var \OCP\IUserManager $um */
 		$um   = \OC::$server->get(IUserManager::class);
 		while ($user && $um->userExists($user) && $usersScanned < self::USERS_PER_SESSION && $lastUser !== $user) {
-			$userObj = $um->get($user);
-			if (!($userObj?->isEnabled() ?? false)) {
-				$this->logger->info("User $user is disabled, omitting background scan");
-				$usersScanned++;
-				continue;
-			}
-
 			$this->runScanner($user);
 			$lastUser = $user;
 			$user = $this->getUserToScan();
-			$usersScanned += 1;
+			$usersScanned++;
 		}
 
 		if ($lastUser === $user) {
